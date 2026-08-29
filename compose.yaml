@@ -1,0 +1,20 @@
+services:
+  nightingale-queue:
+    build: .
+    container_name: nightingale-queue
+    restart: unless-stopped
+    ports:
+      - "7464:7464"
+    volumes:
+      - nightingale-queue-data:/data
+    environment:
+      # NIGHTINGALE_URL: how the CONTAINER reaches Nightingale (internal Docker network reference)
+      NIGHTINGALE_URL: http://host.docker.internal:64448
+      # NIGHTINGALE_PUBLIC_URL: how GUESTS' BROWSERS reach Nightingale (for cover art and VJ links).
+      # For a real party, set this to http://<LAN-IP-of-host>:64448 so phones can load cover art.
+      NIGHTINGALE_PUBLIC_URL: http://localhost:64448
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+volumes:
+  nightingale-queue-data:
