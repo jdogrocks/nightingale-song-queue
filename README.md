@@ -48,11 +48,13 @@ Then visit http://localhost:7464 (guest) or http://localhost:7464/vj (VJ console
 | `DATA_FILE` | `./data/state.json` | Waitlist snapshot path |
 | `SYNC_INTERVAL_SEC` | `120` | Songbook re-sync interval in seconds; set to `0` to disable polling |
 | `PARTY_NAME` | `Karaoke Night` | Title shown on guest and VJ pages |
+| `GUEST_URL` | (empty) | Explicit guest-page URL for the QR code, e.g. `http://192.168.1.50:7464`. Overrides detection. Recommended for Docker. |
 
 ## Party Checklist
 
 - Put Nightingale and this app on the same LAN (or use `localhost` on a single machine)
 - If hosting for remote guests, set `NIGHTINGALE_PUBLIC_URL` to the host's LAN IP (e.g., `http://192.168.1.100:64448`) so cover art and Nightingale links work from phones
+- Set `GUEST_URL` (or open `/vj` via the LAN IP) so the QR code points phones at the right address
 - Open `/vj` on your VJ screen to run the queue
 - Show the QR code from the VJ toolbar so guests can join from their phones
 - No internet required at the venue—everything works on a local network

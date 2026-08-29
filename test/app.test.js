@@ -160,7 +160,12 @@ describe("Nightingale Queue companion API", () => {
   let httpServer;
   let baseUrl;
 
-  async function boot({ songCount = 3, queueApi = false } = {}) {
+  async function boot({
+    songCount = 3,
+    queueApi = false,
+    guestUrl = "",
+    interfacesProvider,
+  } = {}) {
     mock = startMockNightingale({ songCount, queueApi });
     mockPort = await listen(mock.server);
 
@@ -170,6 +175,11 @@ describe("Nightingale Queue companion API", () => {
       nightingaleUrl: `http://127.0.0.1:${mockPort}`,
       nightingalePublicUrl: `http://127.0.0.1:${mockPort}`,
       dataFile: path.join(dir, "state.json"),
+      port: 7464,
+      guestUrl,
+      // Tests that care about join-info/qr.svg behavior pass a fake so
+      // results don't depend on the machine's real network interfaces.
+      ...(interfacesProvider ? { interfacesProvider } : {}),
     };
 
     ({ app, store, nightingale } = createApp({ config }));
@@ -407,13 +417,54 @@ describe("Nightingale Queue companion API", () => {
     assert.deepEqual(enqueueCall.body, { target: { kind: "hashes", hashes: [unanalyzed.fileHash] } });
   });
 
-  test("GET /api/qr.svg returns an SVG encoding the guest URL", async () => {
-    await boot();
+  test("GET /api/join-info returns the configured GUEST_URL as the first candidate", async () => {
+    await boot({ guestUrl: "http://192.168.1.50:7464" });
+    const res = await fetch(`${baseUrl}/api/join-info`);
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.deepEqual(body.candidates[0], {
+      url: "http://192.168.1.50:7464/",
+      source: "configured",
+    });
+  });
+
+  test("GET /api/qr.svg with no url param defaults to the first candidate", async () => {
+    await boot({ guestUrl: "http://192.168.1.50:7464" });
     const res = await fetch(`${baseUrl}/api/qr.svg`);
     assert.equal(res.status, 200);
     assert.equal(res.headers.get("content-type"), "image/svg+xml; charset=utf-8");
     const text = await res.text();
     assert.match(text, /^<svg/);
+  });
+
+  test("GET /api/qr.svg?url=<candidate> returns 200 for a URL that matches a current candidate", async () => {
+    await boot({ guestUrl: "http://192.168.1.50:7464" });
+    const res = await fetch(
+      `${baseUrl}/api/qr.svg?url=${encodeURIComponent("http://192.168.1.50:7464/")}`,
+    );
+    assert.equal(res.status, 200);
+    const text = await res.text();
+    assert.match(text, /^<svg/);
+  });
+
+  test("GET /api/qr.svg?url=<non-candidate> returns 400", async () => {
+    await boot({ guestUrl: "http://192.168.1.50:7464" });
+    const res = await fetch(
+      `${baseUrl}/api/qr.svg?url=${encodeURIComponent("http://evil.example/")}`,
+    );
+    assert.equal(res.status, 400);
+    const body = await res.json();
+    assert.equal(typeof body.error, "string");
+  });
+
+  test("GET /api/qr.svg returns 503 when there are no join candidates", async () => {
+    // No GUEST_URL, requests hit the app over 127.0.0.1 (excluded as
+    // localhost), and the fake interfaces provider reports nothing usable.
+    await boot({ interfacesProvider: () => ({}) });
+    const res = await fetch(`${baseUrl}/api/qr.svg`);
+    assert.equal(res.status, 503);
+    const body = await res.json();
+    assert.equal(typeof body.error, "string");
   });
 
   test("GET /api/events sends an initial snapshot event", async () => {

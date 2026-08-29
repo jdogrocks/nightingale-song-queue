@@ -10,6 +10,7 @@ import QRCode from "qrcode";
 import { WaitlistStore, ValidationError, NotFoundError, ForbiddenError } from "./store.js";
 import { NightingaleClient } from "./nightingale.js";
 import { createEventHub } from "./events.js";
+import { buildJoinInfo } from "./join-info.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(__dirname, "..", "public");
@@ -197,11 +198,31 @@ export function createApp({ config }) {
     res.write(`event: snapshot\ndata: ${JSON.stringify(snapshot)}\n\n`);
   });
 
+  app.get("/api/join-info", (req, res) => {
+    res.json(buildJoinInfo(req, config, config.interfacesProvider));
+  });
+
   app.get("/api/qr.svg", async (req, res) => {
-    const host = req.get("host");
-    const guestUrl = `http://${host}/`;
+    const { candidates } = buildJoinInfo(req, config, config.interfacesProvider);
+    let targetUrl;
+    if (req.query.url !== undefined) {
+      const match = candidates.find((c) => c.url === req.query.url);
+      if (!match) {
+        return res
+          .status(400)
+          .json({ error: "url must exactly match one of the current join candidates" });
+      }
+      targetUrl = match.url;
+    } else {
+      if (candidates.length === 0) {
+        return res
+          .status(503)
+          .json({ error: "No guest-reachable address could be determined" });
+      }
+      targetUrl = candidates[0].url;
+    }
     try {
-      const svg = await QRCode.toString(guestUrl, { type: "svg" });
+      const svg = await QRCode.toString(targetUrl, { type: "svg" });
       res.type("image/svg+xml").send(svg);
     } catch (err) {
       res.status(500).json({ error: err.message });

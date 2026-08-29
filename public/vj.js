@@ -30,7 +30,10 @@ const historyCount = document.getElementById('history-count');
 const toastEl = document.getElementById('toast');
 
 const qrModal = document.getElementById('qr-modal');
+const qrImage = document.getElementById('qr-image');
 const qrUrl = document.getElementById('qr-url');
+const qrSelect = document.getElementById('qr-select');
+const qrHint = document.getElementById('qr-hint');
 const qrClose = document.getElementById('qr-close');
 
 let toastTimer = null;
@@ -448,12 +451,81 @@ async function sendEntry(id) {
   await refreshWaitlistData();
 }
 
+// --- QR modal ---
+
+// Labels per DESIGN.md: configured/request get fixed copy, interface shows
+// the URL itself (there's nothing more descriptive to say about it).
+function candidateLabel(candidate) {
+  if (candidate.source === 'configured') return 'Configured (GUEST_URL)';
+  if (candidate.source === 'request') return 'The address this page was opened with';
+  return candidate.url;
+}
+
+function showQrCandidate(url) {
+  qrImage.src = `/api/qr.svg?url=${encodeURIComponent(url)}`;
+  qrImage.hidden = false;
+  qrUrl.textContent = url;
+}
+
+function renderQrCandidates(candidates) {
+  qrSelect.textContent = '';
+  if (candidates.length === 0) {
+    qrImage.hidden = true;
+    qrImage.removeAttribute('src');
+    qrUrl.textContent = '';
+    qrSelect.hidden = true;
+    qrHint.hidden = false;
+    qrHint.textContent =
+      "Every detected address is localhost-only. Set GUEST_URL, or open this VJ page via the venue's LAN IP.";
+    return;
+  }
+
+  qrHint.hidden = true;
+  showQrCandidate(candidates[0].url);
+
+  if (candidates.length > 1) {
+    const frag = document.createDocumentFragment();
+    candidates.forEach((candidate) => {
+      const option = document.createElement('option');
+      option.value = candidate.url;
+      option.textContent = candidateLabel(candidate);
+      frag.appendChild(option);
+    });
+    qrSelect.appendChild(frag);
+    qrSelect.value = candidates[0].url;
+    qrSelect.hidden = false;
+  } else {
+    qrSelect.hidden = true;
+  }
+}
+
+// Candidates change when the venue's network changes, so re-fetch every
+// time the modal opens rather than caching them.
+async function loadJoinInfo() {
+  qrImage.hidden = true;
+  qrSelect.hidden = true;
+  qrHint.hidden = true;
+  qrUrl.textContent = 'Loading…';
+  try {
+    const res = await fetch('/api/join-info');
+    const body = await safeJson(res);
+    renderQrCandidates((body && body.candidates) || []);
+  } catch {
+    qrUrl.textContent = '';
+    qrHint.hidden = false;
+    qrHint.textContent = 'Could not load join info — check your connection.';
+  }
+}
+
 // --- toolbar ---
 
 function bindToolbar() {
   qrBtn.addEventListener('click', () => {
-    qrUrl.textContent = `${location.origin}/`;
     qrModal.hidden = false;
+    loadJoinInfo();
+  });
+  qrSelect.addEventListener('change', () => {
+    showQrCandidate(qrSelect.value);
   });
   qrClose.addEventListener('click', () => {
     qrModal.hidden = true;

@@ -393,6 +393,17 @@ input[type="search"]::placeholder {
   word-break: break-all;
 }
 
+.qr-select {
+  background: var(--bg-elevated-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  font-size: 0.95rem;
+  width: 100%;
+  margin-top: 8px;
+}
+
 #qr-image {
   background: #fff;
   border-radius: var(--radius-sm);

@@ -13,6 +13,7 @@ function readConfig(env) {
     syncIntervalSec:
       env.SYNC_INTERVAL_SEC !== undefined ? Number(env.SYNC_INTERVAL_SEC) : 120,
     partyName: env.PARTY_NAME || "Karaoke Night",
+    guestUrl: env.GUEST_URL || "",
   };
 }
 

@@ -47,8 +47,10 @@
   <div id="qr-modal" class="modal-overlay" hidden>
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="qr-title">
       <h2 id="qr-title">Scan to join</h2>
-      <img id="qr-image" src="/api/qr.svg" alt="QR code linking to the guest waitlist page" width="240" height="240">
+      <img id="qr-image" alt="QR code linking to the guest waitlist page" width="240" height="240" hidden>
       <p id="qr-url" class="qr-url"></p>
+      <select id="qr-select" class="qr-select" hidden></select>
+      <p id="qr-hint" class="hint" hidden></p>
       <div class="modal-actions">
         <button type="button" id="qr-close" class="btn btn-primary">Close</button>
       </div>

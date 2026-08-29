@@ -32,6 +32,7 @@ and the master-branch source on 2026-08-29. Do not invent endpoints or fields.
 | `DATA_FILE` | `./data/state.json` | Waitlist snapshot path |
 | `SYNC_INTERVAL_SEC` | `120` | Songbook re-sync interval; `0` disables |
 | `PARTY_NAME` | `Karaoke Night` | Title shown on pages |
+| `GUEST_URL` | (empty) | Explicit guest-page URL for the QR code, e.g. `http://192.168.1.50:7464`. Overrides detection. Recommended for Docker. |
 
 ## Nightingale API (verified)
 
@@ -119,8 +120,24 @@ All responses JSON. Errors: `{"error":"<message>"}` with 4xx/5xx status.
 - `GET /api/events` — SSE. On connect, send one `snapshot` event; then on any
   change send `waitlist` or `songbook` events. Event data = the same JSON as
   the corresponding GET. Heartbeat comment line every 25s.
-- `GET /api/qr.svg` — SVG QR code (via `qrcode` package) encoding the guest
-  URL derived from the request's Host header (`http://<host>/`).
+- `GET /api/join-info` → `{"candidates":[{"url":"http://192.168.1.50:7464/","source":"interface"},...]}`
+  Join-URL candidates, best first, recomputed on every request (venue/DHCP
+  changes must be picked up live). Sources in priority order:
+  1. `configured` — `GUEST_URL` env var, normalized to end with `/`.
+  2. `request` — scheme + Host header of this request, only when the
+     hostname is not `localhost`/`127.0.0.1`/`::1` (that address is proven
+     reachable by whoever loaded the page; also the only detection that
+     works from inside Docker).
+  3. `interface` — `os.networkInterfaces()`: IPv4, non-internal, excluding
+     link-local `169.254.0.0/16`; private ranges (10/8, 172.16/12,
+     192.168/16) before other addresses (e.g. Tailscale 100.64/10); URL
+     `http://<ip>:<PORT>/`. The interfaces provider must be injectable for
+     tests.
+  Deduplicate by URL, preserve priority order.
+- `GET /api/qr.svg?url=<encoded>` — SVG QR code (via `qrcode` package) for
+  the given URL, which MUST exactly match one of the current candidates
+  (400 otherwise — no open QR generator). With no `url` param, encode the
+  first candidate; 503 if there are no candidates.
 
 `Entry`:
 ```json
@@ -176,7 +193,13 @@ VJ page `/vj` (`vj.html` + `vj.js`):
    `needsAnalysis` and the songbook still says not analyzed; controls:
    ↑ / ↓ / ⤒ (top), Done, Remove, Send. Send is hidden/disabled with a title
    tooltip when `queueApi` is false.
-3. Toolbar: QR modal (shows `/api/qr.svg` + the URL as text), Refresh
+3. Toolbar: QR modal — on open, fetch `/api/join-info`; show the QR for the
+   first candidate (`/api/qr.svg?url=...`) with the URL as text under it;
+   when there is more than one candidate, show a `<select>` to switch
+   (labels: `configured` → "Configured (GUEST_URL)", `request` → "The
+   address this page was opened with", `interface` → the URL itself); if
+   every candidate is localhost-only, show a hint to set `GUEST_URL` or
+   open the VJ page via the LAN IP. Also in the toolbar: Refresh
    songbook button, status line (N songs · M analyzed · synced HH:MM ·
    Nightingale ● reachable/○ down), link "Open Nightingale" → `publicUrl`.
 4. Done entries collapse into a "History" section.
