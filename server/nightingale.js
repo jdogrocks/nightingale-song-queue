@@ -1,0 +1,158 @@
+// Nightingale API client: thin wrapper over the POST /api/cmd/{name}
+// command endpoint, plus an in-memory songbook cache and playback-queue
+// feature detection. Uses global fetch (Node >= 20).
+
+import { EventEmitter } from "node:events";
+
+const LOAD_SONGS_TAKE = 500;
+
+export class NightingaleClient extends EventEmitter {
+  constructor({ url, publicUrl }) {
+    super();
+    this.url = url.replace(/\/$/, "");
+    this.publicUrl = (publicUrl || url).replace(/\/$/, "");
+
+    this.songs = []; // formatted Song[] (camelCase), sorted by artist, title
+    this.songsByHash = new Map();
+    this.queueApi = false;
+    this.reachable = false;
+    this.syncedAt = null;
+    this.songCount = 0;
+    this.analyzedCount = 0;
+  }
+
+  // POST {url}/api/cmd/{name} with a JSON body (null when the command takes
+  // no arguments). Returns the parsed JSON response on success. Throws an
+  // Error with a `.status` property on a non-2xx HTTP response.
+  async cmd(name, payload) {
+    const res = await fetch(`${this.url}/api/cmd/${name}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload === undefined ? null : payload),
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      const err = new Error(
+        `Nightingale command "${name}" failed: ${res.status}${text ? ` ${text}` : ""}`,
+      );
+      err.status = res.status;
+      throw err;
+    }
+    return res.json();
+  }
+
+  // Full songbook sync: metadata, paginated song list, then playback-queue
+  // feature detection. On failure, the existing cache is left untouched
+  // (stale) and the error is rethrown for the caller to handle.
+  async syncSongbook() {
+    try {
+      const meta = await this.cmd("load_songs_meta", null);
+      const rawSongs = await this._loadAllSongs();
+      this.songCount = meta.count;
+      this.analyzedCount = meta.analyzed_count;
+      this.songs = this._formatSongs(rawSongs);
+      this.songsByHash = new Map(this.songs.map((s) => [s.fileHash, s]));
+      this.reachable = true;
+      this.syncedAt = new Date().toISOString();
+    } catch (err) {
+      this.reachable = false;
+      throw err;
+    }
+    await this._detectQueueApi();
+    this.emit("synced", this.getSongbook());
+    return this.getSongbook();
+  }
+
+  async _loadAllSongs() {
+    const take = LOAD_SONGS_TAKE;
+    let skip = 0;
+    let all = [];
+    let total = Infinity;
+    do {
+      const res = await this.cmd("load_songs", {
+        params: {
+          search: null,
+          filters: { artist: null, album: null, playlist: null, query: null },
+          skip,
+          take,
+        },
+      });
+      total = res.count;
+      all = all.concat(res.processed);
+      skip += take;
+    } while (all.length < total && skip < total + take);
+    return all;
+  }
+
+  // Playback-queue commands are master-only (not in 1.1.0). A 404/"unknown
+  // command" response means queueApi: false. Any other error leaves the
+  // previous value in place (best-effort probe).
+  async _detectQueueApi() {
+    try {
+      await this.cmd("load_playback_queue", null);
+      this.queueApi = true;
+    } catch (err) {
+      if (err.status === 404) {
+        this.queueApi = false;
+      } else {
+        console.warn(
+          `Warning: playback-queue feature detection failed: ${err.message}`,
+        );
+      }
+    }
+  }
+
+  _formatSongs(rawSongs) {
+    const formatted = rawSongs.map((s) => ({
+      fileHash: s.file_hash,
+      title: s.title,
+      artist: s.artist,
+      album: s.album,
+      durationSecs: s.duration_secs,
+      isAnalyzed: s.is_analyzed,
+      tempo: s.tempo,
+      keyOffset: s.key_offset,
+      coverUrl: s.album_art_path
+        ? `${this.publicUrl}/api/asset?path=${encodeURIComponent(s.album_art_path)}`
+        : null,
+    }));
+    formatted.sort((a, b) => {
+      const artistCmp = (a.artist ?? "").localeCompare(b.artist ?? "");
+      if (artistCmp !== 0) return artistCmp;
+      return (a.title ?? "").localeCompare(b.title ?? "");
+    });
+    return formatted;
+  }
+
+  findSong(fileHash) {
+    return this.songsByHash.get(fileHash) ?? null;
+  }
+
+  getSongbook() {
+    return {
+      songs: this.songs,
+      syncedAt: this.syncedAt,
+      nightingale: {
+        reachable: this.reachable,
+        queueApi: this.queueApi,
+        publicUrl: this.publicUrl,
+        songCount: this.songCount,
+        analyzedCount: this.analyzedCount,
+      },
+    };
+  }
+
+  // Best-effort: queues AI analysis for a song. Swallows all errors (the
+  // command may not exist on some Nightingale versions).
+  async enqueueAnalysis(fileHash) {
+    try {
+      await this.cmd("enqueue", { target: { kind: "hashes", hashes: [fileHash] } });
+    } catch {
+      // best-effort, ignore
+    }
+  }
+
+  async addToPlaybackQueue({ fileHash, tempo, keyOffset }) {
+    return this.cmd("add_playback_queue_entry", { fileHash, tempo, keyOffset });
+  }
+}
