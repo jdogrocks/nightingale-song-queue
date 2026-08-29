@@ -61,6 +61,11 @@ function startMockNightingale({ songCount = 3, queueApi = false } = {}) {
     let raw = "";
     req.on("data", (chunk) => (raw += chunk));
     req.on("end", () => {
+      if (req.method === "GET" && req.url.startsWith("/api/asset?")) {
+        res.writeHead(200, { "Content-Type": "image/jpeg" });
+        res.end("fake-jpeg-bytes");
+        return;
+      }
       const match = req.url.match(/^\/api\/cmd\/([^/?]+)/);
       if (req.method !== "POST" || !match) {
         res.writeHead(404, { "Content-Type": "text/plain" });
@@ -230,10 +235,22 @@ describe("Nightingale Queue companion API", () => {
       assert.ok(cmp < 0 || (cmp === 0 && prev.title.localeCompare(cur.title) <= 0));
     }
 
-    // cover url only present when album_art_path was non-null
+    // cover url only present when album_art_path was non-null, and relative
+    // (proxied through the companion, not a direct Nightingale URL)
     const withCover = payload.songs.find((s) => s.coverUrl !== null);
     assert.ok(withCover);
-    assert.match(withCover.coverUrl, /\/api\/asset\?path=/);
+    assert.match(withCover.coverUrl, /^\/api\/cover\?path=/);
+  });
+
+  test("covers are proxied through /api/cover", async () => {
+    await boot({ songCount: 3 });
+    const ok = await fetch(`${baseUrl}/api/cover?path=${encodeURIComponent("/art/0.jpg")}`);
+    assert.equal(ok.status, 200);
+    assert.equal(ok.headers.get("content-type"), "image/jpeg");
+    assert.equal(await ok.text(), "fake-jpeg-bytes");
+
+    const missing = await fetch(`${baseUrl}/api/cover`);
+    assert.equal(missing.status, 400);
   });
 
   test("feature detection: 404 on load_playback_queue sets queueApi false, and send returns 501", async () => {

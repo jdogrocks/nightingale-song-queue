@@ -28,7 +28,7 @@ and the master-branch source on 2026-08-29. Do not invent endpoints or fields.
 |---|---|---|
 | `PORT` | `7464` | Companion listen port ("SING" on a keypad) |
 | `NIGHTINGALE_URL` | `http://localhost:64448` | Nightingale base URL as reachable **from this server process** |
-| `NIGHTINGALE_PUBLIC_URL` | value of `NIGHTINGALE_URL` | Nightingale base URL as reachable **from guests' browsers** (used for cover images and VJ links) |
+| `NIGHTINGALE_PUBLIC_URL` | value of `NIGHTINGALE_URL` | Nightingale base URL as reachable **from the VJ's browser** (only used for the "Open Nightingale" link; covers are proxied) |
 | `DATA_FILE` | `./data/state.json` | Waitlist snapshot path |
 | `SYNC_INTERVAL_SEC` | `120` | Songbook re-sync interval; `0` disables |
 | `PARTY_NAME` | `Karaoke Night` | Title shown on pages |
@@ -91,12 +91,17 @@ All responses JSON. Errors: `{"error":"<message>"}` with 4xx/5xx status.
     "partyName": "Karaoke Night",
     "songs": [{"fileHash":"...","title":"...","artist":"...","album":"...",
                "durationSecs":200.3,"isAnalyzed":true,"tempo":1.0,
-               "keyOffset":0,"coverUrl":"http://.../api/asset?path=..." }],
+               "keyOffset":0,"coverUrl":"/api/cover?path=..." }],
     "syncedAt": "2026-08-29T20:00:00.000Z",
     "nightingale": {"reachable":true,"queueApi":false,"publicUrl":"http://localhost:64448","songCount":422,"analyzedCount":417}
   }
   ```
-  `coverUrl` is null when there is no art. Songs sorted by artist, then title.
+  `coverUrl` is null when there is no art, otherwise a **relative** URL —
+  covers are proxied so guests' phones only ever talk to the companion.
+  Songs sorted by artist, then title.
+- `GET /api/cover?path=<encoded>` — proxies the image from
+  `{NIGHTINGALE_URL}/api/asset?path=...` server-side (400 without `path`,
+  502 on upstream failure, `Cache-Control: public, max-age=86400`).
 - `POST /api/songbook/refresh` → same payload, after a fresh sync. 502 with
   error message if Nightingale is unreachable (keep serving the stale cache
   on `GET`).

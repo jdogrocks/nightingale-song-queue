@@ -112,8 +112,10 @@ export class NightingaleClient extends EventEmitter {
       isAnalyzed: s.is_analyzed,
       tempo: s.tempo,
       keyOffset: s.key_offset,
+      // Relative: covers are proxied through the companion (/api/cover) so
+      // guests' phones never need direct reachability to Nightingale.
       coverUrl: s.album_art_path
-        ? `${this.publicUrl}/api/asset?path=${encodeURIComponent(s.album_art_path)}`
+        ? `/api/cover?path=${encodeURIComponent(s.album_art_path)}`
         : null,
     }));
     formatted.sort((a, b) => {

@@ -36,8 +36,17 @@ export function createApp({ config }) {
     };
   }
 
+  // Entries persisted before covers were proxied stored absolute Nightingale
+  // asset URLs; rewrite them to the proxy form at serve time.
+  function normalizeCoverUrl(entry) {
+    if (entry.coverUrl && /^https?:\/\/[^/]+\/api\/asset\?/.test(entry.coverUrl)) {
+      return { ...entry, coverUrl: entry.coverUrl.replace(/^https?:\/\/[^/]+\/api\/asset\?/, "/api/cover?") };
+    }
+    return entry;
+  }
+
   function buildWaitlistPayload() {
-    const entries = store.list();
+    const entries = store.list().map(normalizeCoverUrl);
     const nowUp = entries.find((e) => e.status === "waiting") ?? null;
     return { entries, nowUp };
   }
@@ -54,6 +63,26 @@ export function createApp({ config }) {
 
   app.get("/api/songbook", (req, res) => {
     res.json(buildSongbookPayload());
+  });
+
+  app.get("/api/cover", async (req, res) => {
+    const p = req.query.path;
+    if (typeof p !== "string" || p === "") {
+      return res.status(400).json({ error: "path required" });
+    }
+    try {
+      const upstream = await fetch(
+        `${config.nightingaleUrl}/api/asset?path=${encodeURIComponent(p)}`,
+      );
+      if (!upstream.ok) {
+        return res.status(502).json({ error: `cover fetch failed (${upstream.status})` });
+      }
+      res.set("Content-Type", upstream.headers.get("content-type") ?? "application/octet-stream");
+      res.set("Cache-Control", "public, max-age=86400");
+      res.send(Buffer.from(await upstream.arrayBuffer()));
+    } catch (err) {
+      res.status(502).json({ error: err.message });
+    }
   });
 
   app.post("/api/songbook/refresh", async (req, res) => {
