@@ -12,7 +12,7 @@ function readConfig(env) {
     dataFile: env.DATA_FILE || "./data/state.json",
     syncIntervalSec:
       env.SYNC_INTERVAL_SEC !== undefined ? Number(env.SYNC_INTERVAL_SEC) : 120,
-    partyName: env.PARTY_NAME || "Karaoke Night",
+    partyName: env.PARTY_NAME || "Karaoke Party!",
     guestUrl: env.GUEST_URL || "",
   };
 }

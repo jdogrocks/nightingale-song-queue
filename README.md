@@ -47,7 +47,7 @@ Then visit http://localhost:7464 (guest) or http://localhost:7464/vj (VJ console
 | `NIGHTINGALE_PUBLIC_URL` | value of `NIGHTINGALE_URL` | Nightingale base URL as reachable **from guests' browsers** (used for cover images and VJ links to Nightingale) |
 | `DATA_FILE` | `./data/state.json` | Waitlist snapshot path |
 | `SYNC_INTERVAL_SEC` | `120` | Songbook re-sync interval in seconds; set to `0` to disable polling |
-| `PARTY_NAME` | `Karaoke Night` | Title shown on guest and VJ pages |
+| `PARTY_NAME` | `Karaoke Party!` | Title shown on guest and VJ pages |
 | `GUEST_URL` | (empty) | Explicit guest-page URL for the QR code, e.g. `http://192.168.1.50:7464`. Overrides detection. Recommended for Docker. |
 
 ## Party Checklist

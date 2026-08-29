@@ -31,7 +31,7 @@ and the master-branch source on 2026-08-29. Do not invent endpoints or fields.
 | `NIGHTINGALE_PUBLIC_URL` | value of `NIGHTINGALE_URL` | Nightingale base URL as reachable **from the VJ's browser** (only used for the "Open Nightingale" link; covers are proxied) |
 | `DATA_FILE` | `./data/state.json` | Waitlist snapshot path |
 | `SYNC_INTERVAL_SEC` | `120` | Songbook re-sync interval; `0` disables |
-| `PARTY_NAME` | `Karaoke Night` | Title shown on pages |
+| `PARTY_NAME` | `Karaoke Party!` | Title shown on pages |
 | `GUEST_URL` | (empty) | Explicit guest-page URL for the QR code, e.g. `http://192.168.1.50:7464`. Overrides detection. Recommended for Docker. |
 
 ## Nightingale API (verified)
@@ -88,7 +88,7 @@ All responses JSON. Errors: `{"error":"<message>"}` with 4xx/5xx status.
 - `GET /api/songbook` →
   ```json
   {
-    "partyName": "Karaoke Night",
+    "partyName": "Karaoke Party!",
     "songs": [{"fileHash":"...","title":"...","artist":"...","album":"...",
                "durationSecs":200.3,"isAnalyzed":true,"tempo":1.0,
                "keyOffset":0,"coverUrl":"/api/cover?path=..." }],
