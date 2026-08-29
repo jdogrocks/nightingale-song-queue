@@ -353,6 +353,11 @@ input[type="search"]::placeholder {
 
 /* Modals */
 
+/* Author display rules would otherwise beat the UA's [hidden] { display:none } */
+[hidden] {
+  display: none !important;
+}
+
 .modal-overlay {
   position: fixed;
   inset: 0;

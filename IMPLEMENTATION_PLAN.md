@@ -10,13 +10,13 @@
 **Goal**: Express app, Nightingale client, waitlist store, SSE, tests
 **Success Criteria**: `node --test test/` passes; all DESIGN.md companion endpoints implemented
 **Tests**: store unit tests; API integration tests against mock Nightingale
-**Status**: Not Started
+**Status**: Complete (28/28 passing)
 
 ## Stage 3: Frontend
 **Goal**: Guest page and VJ page per DESIGN.md
 **Success Criteria**: Pages render and operate against the real backend
 **Tests**: manual verification in browser (Stage 5)
-**Status**: Not Started
+**Status**: Complete (one fix during integration: [hidden] vs display:flex)
 
 ## Stage 4: Docker & README
 **Goal**: Dockerfile, compose.yaml, README
