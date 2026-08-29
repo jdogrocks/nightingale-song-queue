@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>VJ Console</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="vj">
+  <header class="app-header">
+    <h1 id="party-name">Karaoke Night</h1>
+  </header>
+
+  <div id="banner" class="banner" hidden>
+    Nightingale is unreachable right now. Showing the last known songbook — new song requests still queue up, but nothing can be sent to Nightingale until it's back.
+  </div>
+
+  <main>
+    <div class="toolbar">
+      <button type="button" id="qr-btn" class="btn">QR code</button>
+      <button type="button" id="refresh-btn" class="btn">Refresh songbook</button>
+      <span id="status-line" class="status-line">Connecting to the songbook…</span>
+      <a id="open-nightingale-link" href="#" target="_blank" rel="noopener" class="disabled">Open Nightingale</a>
+    </div>
+
+    <section class="now-up">
+      <h2>Now up</h2>
+      <div id="now-up-content"></div>
+    </section>
+
+    <section id="waitlist-section">
+      <h2>Waitlist</h2>
+      <ol id="waitlist" class="waitlist"></ol>
+      <p id="waitlist-empty" class="hint" hidden>Nobody in the queue yet.</p>
+    </section>
+
+    <section id="history-section">
+      <details id="history-details">
+        <summary>History (<span id="history-count">0</span>)</summary>
+        <ol id="history-list" class="history-list"></ol>
+      </details>
+    </section>
+  </main>
+
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+  <div id="qr-modal" class="modal-overlay" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="qr-title">
+      <h2 id="qr-title">Scan to join</h2>
+      <img id="qr-image" src="/api/qr.svg" alt="QR code linking to the guest waitlist page" width="240" height="240">
+      <p id="qr-url" class="qr-url"></p>
+      <div class="modal-actions">
+        <button type="button" id="qr-close" class="btn btn-primary">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="vj.js"></script>
+</body>
+</html>

@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Karaoke Night</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="app-header">
+    <h1 id="party-name">Karaoke Night</h1>
+  </header>
+
+  <div class="identity">
+    <form id="identity-form" class="identity-form">
+      <label for="singer-name-input">Who's singing?</label>
+      <input id="singer-name-input" type="text" maxlength="40" autocomplete="off" placeholder="Your name" required>
+      <button type="submit" class="btn btn-primary">Let's go</button>
+    </form>
+    <p id="identity-display" class="identity-display" hidden>
+      Singing as <strong id="identity-name"></strong> ·
+      <button type="button" id="not-you-btn" class="link-btn">not you?</button>
+    </p>
+  </div>
+
+  <main>
+    <section id="my-songs" hidden>
+      <h2>My songs</h2>
+      <ul id="my-songs-list" class="my-songs-list"></ul>
+    </section>
+
+    <section class="search-section">
+      <input id="search-input" type="search" placeholder="Search songs or artists…" aria-label="Search songbook">
+    </section>
+
+    <p id="songbook-status" class="hint">Connecting to the songbook…</p>
+    <p id="search-note" class="hint" hidden>Keep typing to narrow it down — showing the first 100 matches.</p>
+
+    <ul id="song-list" class="song-list" role="list"></ul>
+  </main>
+
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+  <div id="confirm-modal" class="modal-overlay" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+      <h2 id="confirm-title">Join the waitlist?</h2>
+      <p id="confirm-body"></p>
+      <div class="modal-actions">
+        <button type="button" id="confirm-cancel" class="btn btn-ghost">Cancel</button>
+        <button type="button" id="confirm-submit" class="btn btn-primary">Confirm</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="guest.js"></script>
+</body>
+</html>
