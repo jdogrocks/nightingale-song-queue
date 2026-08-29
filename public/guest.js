@@ -43,10 +43,22 @@ let toastTimer = null;
 
 // --- identity ---
 
+// crypto.randomUUID only exists in secure contexts; guests load this page
+// over plain http on a LAN IP, so fall back to getRandomValues (available
+// everywhere) to build a v4 UUID.
+function makeUuid() {
+  if (crypto.randomUUID) return crypto.randomUUID();
+  const b = crypto.getRandomValues(new Uint8Array(16));
+  b[6] = (b[6] & 0x0f) | 0x40;
+  b[8] = (b[8] & 0x3f) | 0x80;
+  const h = Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+}
+
 function getOrCreateGuestId() {
   let id = localStorage.getItem(STORAGE_GUEST_ID);
   if (!id) {
-    id = crypto.randomUUID();
+    id = makeUuid();
     localStorage.setItem(STORAGE_GUEST_ID, id);
   }
   return id;
