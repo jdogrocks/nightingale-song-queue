@@ -340,8 +340,11 @@ after upgrading.
 ## License
 
 Copyright © 2026 **Cirrusly Cloudy LLC**. Released as open source under the
-[MIT License](LICENSE).
+[Apache License 2.0](LICENSE).
 
-You are free to use, modify, distribute, and sell this software, including commercially. The one
-condition is attribution: the copyright notice and the licence text must be included with any copy
-or substantial portion of the software.
+You are free to use, modify, distribute, and sell this software, including commercially. In return
+the licence requires attribution: anyone redistributing this software or a derivative work must
+include the licence, preserve the existing copyright and attribution notices, include a readable
+copy of the [NOTICE](NOTICE) file, and state clearly if they changed any files. Apache 2.0 also
+grants an explicit patent licence to users, and terminates that grant for anyone who brings a patent
+suit over the software.

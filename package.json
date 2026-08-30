@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "Self-hosted karaoke waitlist manager that pairs with a Nightingale server",
   "author": "Cirrusly Cloudy LLC",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/jdogrocks/nightingale-song-queue.git"
