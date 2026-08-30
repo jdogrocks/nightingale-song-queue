@@ -2,15 +2,14 @@
 // command endpoint, plus an in-memory songbook cache and playback-queue
 // feature detection. Uses global fetch (Node >= 20).
 
-import { EventEmitter } from "node:events";
-
 const LOAD_SONGS_TAKE = 500;
 
-export class NightingaleClient extends EventEmitter {
-  constructor({ url, publicUrl }) {
-    super();
+export class NightingaleClient {
+  constructor({ url, publicUrl, partyName }) {
     this.url = url.replace(/\/$/, "");
     this.publicUrl = (publicUrl || url).replace(/\/$/, "");
+    this.partyName = partyName;
+    this.onSynced = null; // set by the app; called after every successful sync
 
     this.songs = []; // formatted Song[] (camelCase), sorted by artist, title
     this.songsByHash = new Map();
@@ -59,28 +58,27 @@ export class NightingaleClient extends EventEmitter {
       throw err;
     }
     await this._detectQueueApi();
-    this.emit("synced", this.getSongbook());
-    return this.getSongbook();
+    const book = this.getSongbook();
+    this.onSynced?.(book);
+    return book;
   }
 
   async _loadAllSongs() {
-    const take = LOAD_SONGS_TAKE;
-    let skip = 0;
     let all = [];
     let total = Infinity;
-    do {
+    while (all.length < total) {
       const res = await this.cmd("load_songs", {
         params: {
           search: null,
           filters: { artist: null, album: null, playlist: null, query: null },
-          skip,
-          take,
+          skip: all.length,
+          take: LOAD_SONGS_TAKE,
         },
       });
       total = res.count;
+      if (res.processed.length === 0) break; // guard against a lying count
       all = all.concat(res.processed);
-      skip += take;
-    } while (all.length < total && skip < total + take);
+    }
     return all;
   }
 
@@ -132,6 +130,7 @@ export class NightingaleClient extends EventEmitter {
 
   getSongbook() {
     return {
+      partyName: this.partyName,
       songs: this.songs,
       syncedAt: this.syncedAt,
       nightingale: {

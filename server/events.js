@@ -32,18 +32,5 @@ export function createEventHub() {
   }, HEARTBEAT_INTERVAL_MS);
   heartbeatTimer.unref();
 
-  function close() {
-    clearInterval(heartbeatTimer);
-    for (const res of clients) res.end();
-    clients.clear();
-  }
-
-  return {
-    addClient,
-    broadcast,
-    close,
-    get clientCount() {
-      return clients.size;
-    },
-  };
+  return { addClient, broadcast };
 }

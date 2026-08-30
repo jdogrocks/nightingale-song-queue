@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { buildJoinInfo } from "../server/join-info.js";
 
 function fakeReq({ protocol = "http", host } = {}) {
-  return { protocol, headers: host !== undefined ? { host } : {} };
+  return { protocol, get: (name) => (name.toLowerCase() === "host" ? host : undefined) };
 }
 
 function fakeInterfaces(map) {

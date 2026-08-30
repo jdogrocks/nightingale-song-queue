@@ -1,71 +1,30 @@
-// Waitlist store: pure state module (no Express, no Nightingale imports).
-// Holds two ordered lists in memory:
-//   - active: entries with status "waiting" or "sent", in queue order
-//   - history: entries with status "done", most recent first, capped at 200
+// Waitlist store: one ordered array. "waiting"/"sent" entries sit in queue
+// order; "done" entries are kept as history (clients sort by doneAt).
 // Every mutation persists a JSON snapshot to disk (temp file + rename).
 
 import { randomUUID } from "node:crypto";
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  renameSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
-const MAX_ACTIVE_ENTRIES = 200;
-const MAX_HISTORY_ENTRIES = 200;
-
-export class ValidationError extends Error {
-  constructor(message) {
+export class HttpError extends Error {
+  constructor(status, message) {
     super(message);
-    this.name = "ValidationError";
-  }
-}
-
-export class NotFoundError extends Error {
-  constructor(message) {
-    super(message);
-    this.name = "NotFoundError";
-  }
-}
-
-export class ForbiddenError extends Error {
-  constructor(message) {
-    super(message);
-    this.name = "ForbiddenError";
+    this.status = status;
   }
 }
 
 export class WaitlistStore {
   constructor(dataFile) {
     this.dataFile = dataFile;
-    this.active = [];
-    this.history = [];
+    this.entries = [];
     this._load();
   }
 
-  // Returns all entries: active (queue order) followed by history
-  // (most recent done first).
   list() {
-    return [...this.active, ...this.history];
+    return this.entries;
   }
 
-  add({
-    singerName,
-    guestId,
-    fileHash,
-    songTitle,
-    songArtist,
-    coverUrl,
-    needsAnalysis,
-  }) {
-    if (this.active.length >= MAX_ACTIVE_ENTRIES) {
-      throw new ValidationError(
-        `Waitlist is full (max ${MAX_ACTIVE_ENTRIES} active entries)`,
-      );
-    }
+  add({ singerName, guestId, fileHash, songTitle, songArtist, coverUrl, needsAnalysis }) {
     const entry = {
       id: randomUUID(),
       singerName,
@@ -80,119 +39,80 @@ export class WaitlistStore {
       sentAt: null,
       doneAt: null,
     };
-    this.active.push(entry);
+    this.entries.push(entry);
     this._save();
     return entry;
   }
 
-  // Removes an entry entirely. Allowed when guestId matches the entry's
-  // guestId, or when no guestId is supplied at all (the VJ page sends none).
+  _find(id) {
+    const entry = this.entries.find((e) => e.id === id);
+    if (!entry) throw new HttpError(404, `Entry ${id} not found`);
+    return entry;
+  }
+
+  // Allowed when guestId matches the entry, or when no guestId is supplied
+  // at all (the VJ page sends none).
   remove(id, guestId) {
-    const activeIdx = this.active.findIndex((e) => e.id === id);
-    if (activeIdx !== -1) {
-      const entry = this.active[activeIdx];
-      this._checkGuest(entry, guestId);
-      this.active.splice(activeIdx, 1);
-      this._save();
-      return entry;
+    const entry = this._find(id);
+    if (guestId && entry.guestId !== guestId) {
+      throw new HttpError(403, "guestId does not match entry");
     }
-    const historyIdx = this.history.findIndex((e) => e.id === id);
-    if (historyIdx !== -1) {
-      const entry = this.history[historyIdx];
-      this._checkGuest(entry, guestId);
-      this.history.splice(historyIdx, 1);
-      this._save();
-      return entry;
-    }
-    throw new NotFoundError(`Entry ${id} not found`);
+    this.entries = this.entries.filter((e) => e !== entry);
+    this._save();
+    return entry;
   }
 
   markDone(id) {
-    const idx = this.active.findIndex((e) => e.id === id);
-    if (idx === -1) throw new NotFoundError(`Entry ${id} not found`);
-    const [entry] = this.active.splice(idx, 1);
+    const entry = this._find(id);
     entry.status = "done";
     entry.doneAt = new Date().toISOString();
-    this.history.unshift(entry);
-    if (this.history.length > MAX_HISTORY_ENTRIES) {
-      this.history.length = MAX_HISTORY_ENTRIES;
-    }
     this._save();
     return entry;
   }
 
   markSent(id) {
-    const entry = this.active.find((e) => e.id === id);
-    if (!entry) throw new NotFoundError(`Entry ${id} not found`);
+    const entry = this._find(id);
     entry.status = "sent";
     entry.sentAt = new Date().toISOString();
     this._save();
     return entry;
   }
 
-  // orderedIds must contain exactly the ids of all entries whose status is
-  // not "done" (i.e. every active id, no more, no less).
+  // orderedIds must contain exactly the ids of all non-done entries.
   reorder(orderedIds) {
-    const activeIds = this.active.map((e) => e.id);
+    const active = this.entries.filter((e) => e.status !== "done");
+    // ponytail: O(n²) same-set check, fine at party scale
     const sameSet =
-      orderedIds.length === activeIds.length &&
-      activeIds.every((id) => orderedIds.includes(id));
+      orderedIds.length === active.length &&
+      active.every((e) => orderedIds.includes(e.id));
     if (!sameSet) {
-      throw new ValidationError(
-        "orderedIds must contain exactly the ids of all non-done entries",
-      );
+      throw new HttpError(400, "orderedIds must contain exactly the ids of all non-done entries");
     }
-    const byId = new Map(this.active.map((e) => [e.id, e]));
-    this.active = orderedIds.map((id) => byId.get(id));
+    const byId = new Map(active.map((e) => [e.id, e]));
+    this.entries = [
+      ...orderedIds.map((id) => byId.get(id)),
+      ...this.entries.filter((e) => e.status === "done"),
+    ];
     this._save();
-    return this.list();
-  }
-
-  _checkGuest(entry, guestId) {
-    const provided = guestId !== undefined && guestId !== null && guestId !== "";
-    if (provided && entry.guestId !== guestId) {
-      throw new ForbiddenError("guestId does not match entry");
-    }
+    return this.entries;
   }
 
   _load() {
-    if (!existsSync(this.dataFile)) {
-      this.active = [];
-      this.history = [];
-      return;
-    }
+    if (!existsSync(this.dataFile)) return;
     try {
-      const raw = readFileSync(this.dataFile, "utf8");
-      const parsed = JSON.parse(raw);
-      this.active = Array.isArray(parsed.active) ? parsed.active : [];
-      this.history = Array.isArray(parsed.history) ? parsed.history : [];
+      const parsed = JSON.parse(readFileSync(this.dataFile, "utf8"));
+      // Older snapshots stored {active, history} instead of {entries}.
+      this.entries = parsed.entries ?? [...(parsed.active ?? []), ...(parsed.history ?? [])];
     } catch (err) {
-      const corruptPath = `${this.dataFile}.corrupt-${Date.now()}`;
-      try {
-        renameSync(this.dataFile, corruptPath);
-        console.warn(
-          `Warning: could not parse ${this.dataFile} (${err.message}); moved to ${corruptPath} and starting empty`,
-        );
-      } catch (renameErr) {
-        console.warn(
-          `Warning: could not parse ${this.dataFile} (${err.message}) and could not rename it (${renameErr.message}); starting empty`,
-        );
-      }
-      this.active = [];
-      this.history = [];
+      try { renameSync(this.dataFile, `${this.dataFile}.corrupt`); } catch {}
+      console.warn(`Warning: could not parse ${this.dataFile} (${err.message}); starting empty`);
     }
   }
 
   _save() {
-    const dir = path.dirname(this.dataFile);
-    if (!existsSync(dir)) {
-      mkdirSync(dir, { recursive: true });
-    }
-    const tmpFile = `${this.dataFile}.tmp-${process.pid}-${Date.now()}`;
-    writeFileSync(
-      tmpFile,
-      JSON.stringify({ active: this.active, history: this.history }, null, 2),
-    );
+    mkdirSync(path.dirname(this.dataFile), { recursive: true });
+    const tmpFile = `${this.dataFile}.tmp-${process.pid}`;
+    writeFileSync(tmpFile, JSON.stringify({ entries: this.entries }, null, 2));
     renameSync(tmpFile, this.dataFile);
   }
 }

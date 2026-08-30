@@ -108,14 +108,14 @@ All responses JSON. Errors: `{"error":"<message>"}` with 4xx/5xx status.
 - `GET /api/waitlist` → `{"entries":[Entry,...],"nowUp":Entry|null}`
 - `POST /api/waitlist` body `{"singerName":"Ana","fileHash":"...","guestId":"<uuid>"}`
   → created Entry (201). Validation: singerName trimmed, 1–40 chars;
-  fileHash must exist in songbook cache; guestId required, ≤64 chars; max 200
-  entries with status `waiting`/`sent`. If the song `isAnalyzed === false`,
-  fire-and-forget an `enqueue` to Nightingale and set `needsAnalysis: true`.
+  fileHash must exist in songbook cache; guestId required, ≤64 chars.
+  If the song `isAnalyzed === false`, fire-and-forget an `enqueue` to
+  Nightingale and set `needsAnalysis: true`.
 - `DELETE /api/waitlist/:id` with optional body `{"guestId":"..."}`
   — allowed when the guestId matches the entry, or when no guestId is sent
   (VJ page sends none). Removes the entry entirely.
-- `POST /api/waitlist/:id/done` → marks status `done` (kept as history, most
-  recent first; history capped at 200).
+- `POST /api/waitlist/:id/done` → marks status `done` in place (kept as
+  history; clients sort by `doneAt`).
 - `POST /api/waitlist/reorder` body `{"orderedIds":["id1","id2",...]}` — must
   contain exactly the ids of all entries whose status is not `done`; 400
   otherwise. Reorders them.
@@ -164,7 +164,7 @@ survive songbook re-syncs.
   plus snapshot load/save. Every mutation persists (temp file + rename) and
   returns the new state.
 - On boot: load the file if valid JSON; on parse failure, rename the corrupt
-  file to `<name>.corrupt-<timestamp>` and start empty (log a warning).
+  file to `<name>.corrupt` and start empty (log a warning).
 - IDs: `crypto.randomUUID()`.
 
 ## Live updates

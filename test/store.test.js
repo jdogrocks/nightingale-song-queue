@@ -10,12 +10,7 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import {
-  WaitlistStore,
-  ValidationError,
-  NotFoundError,
-  ForbiddenError,
-} from "../server/store.js";
+import { WaitlistStore, HttpError } from "../server/store.js";
 
 let dir;
 let dataFile;
@@ -56,26 +51,13 @@ describe("WaitlistStore.add", () => {
     assert.equal(typeof entry.requestedAt, "string");
     assert.deepEqual(store.list(), [entry]);
   });
-
-  test("rejects a 201st active entry", () => {
-    const store = new WaitlistStore(dataFile);
-    for (let i = 0; i < 200; i++) {
-      store.add(makeEntryInput({ guestId: `guest-${i}`, fileHash: `hash-${i}` }));
-    }
-    assert.throws(
-      () => store.add(makeEntryInput({ guestId: "guest-200", fileHash: "hash-200" })),
-      ValidationError,
-    );
-    assert.equal(store.list().length, 200);
-  });
 });
 
 describe("WaitlistStore.remove", () => {
   test("removes an entry when guestId matches", () => {
     const store = new WaitlistStore(dataFile);
     const entry = store.add(makeEntryInput({ guestId: "guest-1" }));
-    const removed = store.remove(entry.id, "guest-1");
-    assert.equal(removed.id, entry.id);
+    store.remove(entry.id, "guest-1");
     assert.equal(store.list().length, 0);
   });
 
@@ -86,16 +68,16 @@ describe("WaitlistStore.remove", () => {
     assert.equal(store.list().length, 0);
   });
 
-  test("throws ForbiddenError when guestId does not match", () => {
+  test("throws 403 when guestId does not match", () => {
     const store = new WaitlistStore(dataFile);
     const entry = store.add(makeEntryInput({ guestId: "guest-1" }));
-    assert.throws(() => store.remove(entry.id, "someone-else"), ForbiddenError);
+    assert.throws(() => store.remove(entry.id, "someone-else"), (err) => err.status === 403);
     assert.equal(store.list().length, 1);
   });
 
-  test("throws NotFoundError for an unknown id", () => {
+  test("throws 404 for an unknown id", () => {
     const store = new WaitlistStore(dataFile);
-    assert.throws(() => store.remove("nope"), NotFoundError);
+    assert.throws(() => store.remove("nope"), (err) => err.status === 404);
   });
 
   test("removes a done (history) entry too", () => {
@@ -108,7 +90,7 @@ describe("WaitlistStore.remove", () => {
 });
 
 describe("WaitlistStore.markDone / markSent", () => {
-  test("markDone moves the entry into history, most recent first", () => {
+  test("markDone marks the entry done in place", () => {
     const store = new WaitlistStore(dataFile);
     const first = store.add(makeEntryInput({ guestId: "g1", fileHash: "h1" }));
     const second = store.add(makeEntryInput({ guestId: "g2", fileHash: "h2" }));
@@ -119,30 +101,15 @@ describe("WaitlistStore.markDone / markSent", () => {
     const entries = store.list();
     assert.deepEqual(
       entries.map((e) => e.id),
-      [second.id, first.id],
+      [first.id, second.id],
     );
     assert.equal(entries[0].status, "done");
     assert.equal(typeof entries[0].doneAt, "string");
   });
 
-  test("markDone on an unknown id throws NotFoundError", () => {
+  test("markDone on an unknown id throws 404", () => {
     const store = new WaitlistStore(dataFile);
-    assert.throws(() => store.markDone("nope"), NotFoundError);
-  });
-
-  test("history is capped at 200 entries", () => {
-    const store = new WaitlistStore(dataFile);
-    const ids = [];
-    for (let i = 0; i < 201; i++) {
-      const entry = store.add(makeEntryInput({ guestId: `g${i}`, fileHash: `h${i}` }));
-      ids.push(entry.id);
-      store.markDone(entry.id);
-    }
-    const history = store.list();
-    assert.equal(history.length, 200);
-    // Most recent (last added/done) stays at the front; the oldest is dropped.
-    assert.equal(history[0].id, ids[200]);
-    assert.ok(!history.some((e) => e.id === ids[0]));
+    assert.throws(() => store.markDone("nope"), (err) => err.status === 404);
   });
 
   test("markSent updates status and sentAt but keeps the entry active", () => {
@@ -154,9 +121,9 @@ describe("WaitlistStore.markDone / markSent", () => {
     assert.equal(store.list().length, 1);
   });
 
-  test("markSent on an unknown id throws NotFoundError", () => {
+  test("markSent on an unknown id throws 404", () => {
     const store = new WaitlistStore(dataFile);
-    assert.throws(() => store.markSent("nope"), NotFoundError);
+    assert.throws(() => store.markSent("nope"), (err) => err.status === 404);
   });
 });
 
@@ -178,7 +145,7 @@ describe("WaitlistStore.reorder", () => {
     const store = new WaitlistStore(dataFile);
     const a = store.add(makeEntryInput({ guestId: "ga", fileHash: "ha" }));
     store.add(makeEntryInput({ guestId: "gb", fileHash: "hb" }));
-    assert.throws(() => store.reorder([a.id]), ValidationError);
+    assert.throws(() => store.reorder([a.id]), (err) => err.status === 400);
   });
 
   test("rejects reorder that includes a done entry's id", () => {
@@ -186,7 +153,7 @@ describe("WaitlistStore.reorder", () => {
     const a = store.add(makeEntryInput({ guestId: "ga", fileHash: "ha" }));
     const b = store.add(makeEntryInput({ guestId: "gb", fileHash: "hb" }));
     store.markDone(a.id);
-    assert.throws(() => store.reorder([a.id, b.id]), ValidationError);
+    assert.throws(() => store.reorder([a.id, b.id]), (err) => err.status === 400);
   });
 });
 
@@ -209,7 +176,7 @@ describe("WaitlistStore persistence", () => {
     const files = readdirSync(dir);
     assert.deepEqual(files, ["state.json"]);
     const saved = JSON.parse(readFileSync(dataFile, "utf8"));
-    assert.equal(saved.active.length, 1);
+    assert.equal(saved.entries.length, 1);
   });
 
   test("recovers from a corrupt data file by renaming it and starting empty", () => {
@@ -217,10 +184,7 @@ describe("WaitlistStore persistence", () => {
     const store = new WaitlistStore(dataFile);
     assert.deepEqual(store.list(), []);
 
-    const files = readdirSync(dir);
-    const corruptFile = files.find((f) => f.includes(".corrupt-"));
-    assert.ok(corruptFile, "expected a .corrupt-<timestamp> file to exist");
-    const corruptContents = readFileSync(path.join(dir, corruptFile), "utf8");
+    const corruptContents = readFileSync(`${dataFile}.corrupt`, "utf8");
     assert.equal(corruptContents, "{ not valid json");
   });
 });

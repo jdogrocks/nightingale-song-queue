@@ -7,7 +7,7 @@ import path from "node:path";
 import express from "express";
 import QRCode from "qrcode";
 
-import { WaitlistStore, ValidationError, NotFoundError, ForbiddenError } from "./store.js";
+import { WaitlistStore } from "./store.js";
 import { NightingaleClient } from "./nightingale.js";
 import { createEventHub } from "./events.js";
 import { buildJoinInfo } from "./join-info.js";
@@ -20,21 +20,12 @@ export function createApp({ config }) {
   const nightingale = new NightingaleClient({
     url: config.nightingaleUrl,
     publicUrl: config.nightingalePublicUrl,
+    partyName: config.partyName,
   });
   const events = createEventHub();
 
   const app = express();
   app.use(express.json());
-
-  function buildSongbookPayload() {
-    const sb = nightingale.getSongbook();
-    return {
-      partyName: config.partyName,
-      songs: sb.songs,
-      syncedAt: sb.syncedAt,
-      nightingale: sb.nightingale,
-    };
-  }
 
   // Entries persisted before covers were proxied stored absolute Nightingale
   // asset URLs; rewrite them to the proxy form at serve time.
@@ -53,16 +44,14 @@ export function createApp({ config }) {
 
   // Any songbook sync — whether triggered by the refresh route below or by
   // index.js's background interval — fans out to connected SSE clients.
-  nightingale.on("synced", () => {
-    events.broadcast("songbook", buildSongbookPayload());
-  });
+  nightingale.onSynced = (book) => events.broadcast("songbook", book);
 
   app.get("/healthz", (req, res) => {
     res.json({ ok: true });
   });
 
   app.get("/api/songbook", (req, res) => {
-    res.json(buildSongbookPayload());
+    res.json(nightingale.getSongbook());
   });
 
   app.get("/api/cover", async (req, res) => {
@@ -88,7 +77,7 @@ export function createApp({ config }) {
   app.post("/api/songbook/refresh", async (req, res) => {
     try {
       await nightingale.syncSongbook();
-      res.json(buildSongbookPayload());
+      res.json(nightingale.getSongbook());
     } catch (err) {
       res.status(502).json({ error: err.message });
     }
@@ -140,10 +129,7 @@ export function createApp({ config }) {
       events.broadcast("waitlist", buildWaitlistPayload());
       res.status(201).json(entry);
     } catch (err) {
-      if (err instanceof ValidationError) {
-        return res.status(400).json({ error: err.message });
-      }
-      res.status(500).json({ error: err.message });
+      res.status(err.status ?? 500).json({ error: err.message });
     }
   });
 
@@ -154,13 +140,7 @@ export function createApp({ config }) {
       events.broadcast("waitlist", buildWaitlistPayload());
       res.json({ ok: true });
     } catch (err) {
-      if (err instanceof NotFoundError) {
-        return res.status(404).json({ error: err.message });
-      }
-      if (err instanceof ForbiddenError) {
-        return res.status(403).json({ error: err.message });
-      }
-      res.status(500).json({ error: err.message });
+      res.status(err.status ?? 500).json({ error: err.message });
     }
   });
 
@@ -170,10 +150,7 @@ export function createApp({ config }) {
       events.broadcast("waitlist", buildWaitlistPayload());
       res.json(entry);
     } catch (err) {
-      if (err instanceof NotFoundError) {
-        return res.status(404).json({ error: err.message });
-      }
-      res.status(500).json({ error: err.message });
+      res.status(err.status ?? 500).json({ error: err.message });
     }
   });
 
@@ -188,10 +165,7 @@ export function createApp({ config }) {
       events.broadcast("waitlist", payload);
       res.json(payload);
     } catch (err) {
-      if (err instanceof ValidationError) {
-        return res.status(400).json({ error: err.message });
-      }
-      res.status(500).json({ error: err.message });
+      res.status(err.status ?? 500).json({ error: err.message });
     }
   });
 
@@ -222,7 +196,7 @@ export function createApp({ config }) {
     events.addClient(res);
     const snapshot = {
       waitlist: buildWaitlistPayload(),
-      songbook: buildSongbookPayload(),
+      songbook: nightingale.getSongbook(),
     };
     res.write(`event: snapshot\ndata: ${JSON.stringify(snapshot)}\n\n`);
   });
