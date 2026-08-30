@@ -339,4 +339,9 @@ after upgrading.
 
 ## License
 
-MIT
+Copyright © 2026 **Cirrusly Cloudy LLC**. Released as open source under the
+[MIT License](LICENSE).
+
+You are free to use, modify, distribute, and sell this software, including commercially. The one
+condition is attribution: the copyright notice and the licence text must be included with any copy
+or substantial portion of the software.
