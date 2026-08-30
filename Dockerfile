@@ -7,7 +7,6 @@ RUN npm ci --omit=dev || npm install --omit=dev
 
 COPY server/ ./server/
 COPY public/ ./public/
-COPY DESIGN.md ./
 
 ENV NODE_ENV=production
 ENV DATA_FILE=/data/state.json

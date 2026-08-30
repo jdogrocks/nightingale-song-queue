@@ -1,16 +1,15 @@
 // Nightingale Queue — guest page logic. Vanilla JS, no build step.
-// Contract: see DESIGN.md "Companion HTTP API". All user-provided /
-// Nightingale-sourced strings are rendered via textContent only.
+// Contract: see DESIGN.md "Companion HTTP API".
+
+import { formatDuration, safeJson, buildCover, showToast, connectLive, refreshWaitlist } from './shared.js';
 
 const STORAGE_NAME = 'nq_singerName';
 const STORAGE_GUEST_ID = 'nq_guestId';
 
 const state = {
   songs: [],
-  songbookMeta: null, // { partyName, syncedAt, nightingale }
   songbookLoaded: false,
   entries: [],
-  nowUp: null,
   guestId: null,
   singerName: null,
   pendingSong: null,
@@ -39,8 +38,6 @@ const confirmBody = document.getElementById('confirm-body');
 const confirmCancelBtn = document.getElementById('confirm-cancel');
 const confirmSubmitBtn = document.getElementById('confirm-submit');
 
-let toastTimer = null;
-
 // --- identity ---
 
 // crypto.randomUUID only exists in secure contexts; guests load this page
@@ -55,23 +52,14 @@ function makeUuid() {
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
 }
 
-function getOrCreateGuestId() {
+function loadIdentity() {
   let id = localStorage.getItem(STORAGE_GUEST_ID);
   if (!id) {
     id = makeUuid();
     localStorage.setItem(STORAGE_GUEST_ID, id);
   }
-  return id;
-}
-
-function loadIdentity() {
-  state.guestId = getOrCreateGuestId();
+  state.guestId = id;
   state.singerName = localStorage.getItem(STORAGE_NAME) || null;
-}
-
-function setSingerName(name) {
-  state.singerName = name;
-  localStorage.setItem(STORAGE_NAME, name);
 }
 
 function renderIdentity() {
@@ -83,60 +71,7 @@ function renderIdentity() {
   }
 }
 
-// --- helpers ---
-
-function formatDuration(totalSecs) {
-  if (totalSecs == null || Number.isNaN(totalSecs)) return '--:--';
-  const total = Math.max(0, Math.round(totalSecs));
-  const m = Math.floor(total / 60);
-  const s = total % 60;
-  return `${m}:${String(s).padStart(2, '0')}`;
-}
-
-async function safeJson(res) {
-  try {
-    return await res.json();
-  } catch {
-    return null;
-  }
-}
-
-function buildCover(item) {
-  if (item.coverUrl) {
-    const img = document.createElement('img');
-    img.src = item.coverUrl;
-    img.alt = '';
-    img.loading = 'lazy';
-    img.className = 'cover-img';
-    return img;
-  }
-  const div = document.createElement('div');
-  div.className = 'cover-placeholder';
-  div.textContent = '♪';
-  div.setAttribute('aria-hidden', 'true');
-  return div;
-}
-
-function showToast(message) {
-  toastEl.textContent = message;
-  toastEl.hidden = false;
-  // force reflow so the transition runs even if a toast is already visible
-  void toastEl.offsetWidth;
-  toastEl.classList.add('visible');
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => {
-    toastEl.classList.remove('visible');
-    setTimeout(() => {
-      toastEl.hidden = true;
-    }, 300);
-  }, 3000);
-}
-
 // --- rendering ---
-
-function renderSongbookStatus() {
-  songbookStatusEl.hidden = state.songbookLoaded;
-}
 
 function getFilteredSongs() {
   const q = searchInput.value.trim().toLowerCase();
@@ -248,20 +183,15 @@ function renderMySongs() {
 
 function render() {
   renderIdentity();
-  renderSongbookStatus();
+  songbookStatusEl.hidden = state.songbookLoaded;
   renderSongList();
   renderMySongs();
 }
 
-// --- data fetching ---
+// --- data ---
 
 function handleSongbook(data) {
   state.songs = data.songs || [];
-  state.songbookMeta = {
-    partyName: data.partyName,
-    syncedAt: data.syncedAt,
-    nightingale: data.nightingale,
-  };
   state.songbookLoaded = true;
   if (data.partyName) {
     partyNameEl.textContent = data.partyName;
@@ -272,60 +202,7 @@ function handleSongbook(data) {
 
 function handleWaitlist(data) {
   state.entries = data.entries || [];
-  state.nowUp = data.nowUp || null;
   render();
-}
-
-// The SSE "snapshot" event's exact payload shape isn't pinned down further
-// than "JSON matching the GET endpoints" in DESIGN.md. Handle both a
-// combined {songbook, waitlist} wrapper and, defensively, a bare songbook-
-// or waitlist-shaped object.
-function handleSnapshot(data) {
-  if (!data) return;
-  if (data.songbook) {
-    handleSongbook(data.songbook);
-  } else if (Array.isArray(data.songs)) {
-    handleSongbook(data);
-  }
-  if (data.waitlist) {
-    handleWaitlist(data.waitlist);
-  } else if (Array.isArray(data.entries)) {
-    handleWaitlist(data);
-  }
-}
-
-async function refreshSongbook() {
-  try {
-    const res = await fetch('/api/songbook');
-    if (res.ok) handleSongbook(await res.json());
-  } catch {
-    // offline / server down — keep whatever we last had
-  }
-}
-
-async function refreshWaitlistData() {
-  try {
-    const res = await fetch('/api/waitlist');
-    if (res.ok) handleWaitlist(await res.json());
-  } catch {
-    // offline / server down — keep whatever we last had
-  }
-}
-
-async function refreshAll() {
-  await Promise.all([refreshSongbook(), refreshWaitlistData()]);
-}
-
-function connectEvents() {
-  const es = new EventSource('/api/events');
-  es.addEventListener('snapshot', (e) => handleSnapshot(JSON.parse(e.data)));
-  es.addEventListener('waitlist', (e) => handleWaitlist(JSON.parse(e.data)));
-  es.addEventListener('songbook', (e) => handleSongbook(JSON.parse(e.data)));
-  // EventSource reconnects natively on drop; refresh explicitly whenever a
-  // connection (re)opens in case anything was missed while disconnected.
-  es.addEventListener('open', () => {
-    refreshAll();
-  });
 }
 
 // --- actions ---
@@ -344,10 +221,10 @@ async function submitRequest(song) {
   if (!res.ok) {
     throw new Error((body && body.error) || 'Could not join the waitlist.');
   }
-  await refreshWaitlistData();
-  const waitingEntries = state.entries.filter((e) => e.status === 'waiting');
-  const idx = waitingEntries.findIndex((e) => body && e.id === body.id);
-  showToast(idx >= 0 ? `You're #${idx + 1}` : "You're on the list");
+  await refreshWaitlist(handleWaitlist);
+  const waiting = state.entries.filter((e) => e.status === 'waiting');
+  const idx = waiting.findIndex((e) => body && e.id === body.id);
+  showToast(toastEl, idx >= 0 ? `You're #${idx + 1}` : "You're on the list");
 }
 
 async function cancelEntry(id) {
@@ -358,9 +235,9 @@ async function cancelEntry(id) {
       body: JSON.stringify({ guestId: state.guestId }),
     });
   } catch {
-    showToast('Could not cancel — check your connection.');
+    showToast(toastEl, 'Could not cancel — check your connection.');
   }
-  await refreshWaitlistData();
+  await refreshWaitlist(handleWaitlist);
 }
 
 // --- confirm modal ---
@@ -377,6 +254,17 @@ function closeConfirm() {
   state.pendingSong = null;
 }
 
+function onSongRowActivate(row) {
+  const song = state.songs.find((s) => s.fileHash === row.dataset.fileHash);
+  if (!song) return;
+  if (!state.singerName) {
+    identityForm.hidden = false;
+    singerNameInput.focus();
+    return;
+  }
+  openConfirm(song);
+}
+
 // --- event bindings ---
 
 function bindEvents() {
@@ -384,7 +272,8 @@ function bindEvents() {
     e.preventDefault();
     const val = singerNameInput.value.trim().slice(0, 40);
     if (!val) return;
-    setSingerName(val);
+    state.singerName = val;
+    localStorage.setItem(STORAGE_NAME, val);
     renderIdentity();
   });
 
@@ -400,8 +289,7 @@ function bindEvents() {
 
   songListEl.addEventListener('click', (e) => {
     const row = e.target.closest('.song-row');
-    if (!row) return;
-    onSongRowActivate(row);
+    if (row) onSongRowActivate(row);
   });
   songListEl.addEventListener('keydown', (e) => {
     if (e.key !== 'Enter' && e.key !== ' ') return;
@@ -427,36 +315,15 @@ function bindEvents() {
       await submitRequest(song);
       closeConfirm();
     } catch (err) {
-      showToast(err.message || 'Something went wrong. Try again.');
+      showToast(toastEl, err.message || 'Something went wrong. Try again.');
     } finally {
       confirmSubmitBtn.disabled = false;
     }
   });
 }
 
-function onSongRowActivate(row) {
-  const song = state.songs.find((s) => s.fileHash === row.dataset.fileHash);
-  if (!song) return;
-  if (!state.singerName) {
-    identityForm.hidden = false;
-    singerNameInput.focus();
-    return;
-  }
-  openConfirm(song);
-}
-
-// --- init ---
-
-function init() {
-  loadIdentity();
-  bindEvents();
-  render();
-  if (!state.singerName) {
-    singerNameInput.focus();
-  }
-  refreshAll();
-  connectEvents();
-  setInterval(refreshAll, 30000);
-}
-
-init();
+loadIdentity();
+bindEvents();
+render();
+if (!state.singerName) singerNameInput.focus();
+connectLive({ onSongbook: handleSongbook, onWaitlist: handleWaitlist });

@@ -1,11 +1,11 @@
 // Nightingale Queue — VJ console logic. Vanilla JS, no build step.
-// Contract: see DESIGN.md "Companion HTTP API". All Nightingale/guest-
-// provided strings are rendered via textContent only.
+// Contract: see DESIGN.md "Companion HTTP API".
+
+import { safeJson, buildCover, showToast, connectLive, refreshWaitlist } from './shared.js';
 
 const state = {
   songs: [],
-  songbookMeta: null, // { partyName, syncedAt, nightingale }
-  songbookLoaded: false,
+  songbook: null, // last /api/songbook payload
   entries: [],
   nowUp: null,
 };
@@ -36,17 +36,7 @@ const qrSelect = document.getElementById('qr-select');
 const qrHint = document.getElementById('qr-hint');
 const qrClose = document.getElementById('qr-close');
 
-let toastTimer = null;
-
 // --- helpers ---
-
-function formatDuration(totalSecs) {
-  if (totalSecs == null || Number.isNaN(totalSecs)) return '--:--';
-  const total = Math.max(0, Math.round(totalSecs));
-  const m = Math.floor(total / 60);
-  const s = total % 60;
-  return `${m}:${String(s).padStart(2, '0')}`;
-}
 
 function formatTime(iso) {
   if (!iso) return '--:--';
@@ -55,46 +45,12 @@ function formatTime(iso) {
   return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
-async function safeJson(res) {
-  try {
-    return await res.json();
-  } catch {
-    return null;
-  }
-}
-
-function buildCover(item) {
-  if (item.coverUrl) {
-    const img = document.createElement('img');
-    img.src = item.coverUrl;
-    img.alt = '';
-    img.loading = 'lazy';
-    img.className = 'cover-img';
-    return img;
-  }
-  const div = document.createElement('div');
-  div.className = 'cover-placeholder';
-  div.textContent = '♪';
-  div.setAttribute('aria-hidden', 'true');
-  return div;
-}
-
-function showToast(message) {
-  toastEl.textContent = message;
-  toastEl.hidden = false;
-  void toastEl.offsetWidth;
-  toastEl.classList.add('visible');
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => {
-    toastEl.classList.remove('visible');
-    setTimeout(() => {
-      toastEl.hidden = true;
-    }, 300);
-  }, 3500);
+function nightingaleMeta() {
+  return (state.songbook && state.songbook.nightingale) || {};
 }
 
 function queueApiAvailable() {
-  return !!(state.songbookMeta && state.songbookMeta.nightingale && state.songbookMeta.nightingale.queueApi === true);
+  return nightingaleMeta().queueApi === true;
 }
 
 function songStillUnanalyzed(fileHash) {
@@ -125,33 +81,22 @@ function textButton(label, onClick) {
 
 // --- rendering ---
 
-function renderBanner() {
-  if (!state.songbookLoaded) {
+function renderStatus() {
+  if (!state.songbook) {
+    statusLineEl.textContent = 'Connecting to the songbook…';
     bannerEl.hidden = true;
     return;
   }
-  const reachable = state.songbookMeta.nightingale && state.songbookMeta.nightingale.reachable;
-  bannerEl.hidden = reachable !== false;
-}
-
-function renderStatus() {
-  if (!state.songbookLoaded) {
-    statusLineEl.textContent = 'Connecting to the songbook…';
-    return;
-  }
-  const ng = state.songbookMeta.nightingale || {};
+  const ng = nightingaleMeta();
+  bannerEl.hidden = ng.reachable !== false;
   const songCount = ng.songCount ?? state.songs.length;
-  const analyzedCount = ng.analyzedCount ?? 0;
-  const synced = formatTime(state.songbookMeta.syncedAt);
+  const synced = formatTime(state.songbook.syncedAt);
   const dot = ng.reachable ? '●' : '○';
   const label = ng.reachable ? 'reachable' : 'down';
-  statusLineEl.textContent = `${songCount} songs · ${analyzedCount} analyzed · synced ${synced} · Nightingale ${dot} ${label}`;
-}
+  statusLineEl.textContent = `${songCount} songs · ${ng.analyzedCount ?? 0} analyzed · synced ${synced} · Nightingale ${dot} ${label}`;
 
-function renderOpenLink() {
-  const url = state.songbookMeta && state.songbookMeta.nightingale && state.songbookMeta.nightingale.publicUrl;
-  if (url) {
-    openNightingaleLink.href = url;
+  if (ng.publicUrl) {
+    openNightingaleLink.href = ng.publicUrl;
     openNightingaleLink.classList.remove('disabled');
   } else {
     openNightingaleLink.removeAttribute('href');
@@ -232,18 +177,22 @@ function buildWaitlistRow(entry, idx, total, waitingEntries) {
   downBtn.disabled = idx === total - 1;
   const topBtn = iconButton('⤒', 'Move to top', () => moveEntry(entry.id, 'top'));
   topBtn.disabled = idx === 0;
-  const doneBtn = textButton('Done', () => markDone(entry.id));
-  const removeBtn = textButton('Remove', () => removeEntry(entry.id));
-  controls.append(upBtn, downBtn, topBtn, doneBtn, removeBtn);
+  controls.append(
+    upBtn,
+    downBtn,
+    topBtn,
+    textButton('Done', () => markDone(entry.id)),
+    textButton('Remove', () => removeEntry(entry.id))
+  );
 
   if (entry.status === 'waiting') {
     const sendBtn = textButton('Send', () => sendEntry(entry.id));
     sendBtn.classList.add('btn-accent');
-    if (!queueApiAvailable()) {
+    if (queueApiAvailable()) {
+      sendBtn.title = 'Queue this song in Nightingale';
+    } else {
       sendBtn.disabled = true;
       sendBtn.title = "This Nightingale version doesn't have the queue API yet (needs a build with the playback-queue commands).";
-    } else {
-      sendBtn.title = 'Queue this song in Nightingale';
     }
     controls.appendChild(sendBtn);
   } else if (entry.status === 'sent') {
@@ -272,12 +221,10 @@ function renderWaitlist() {
 function renderHistory() {
   const done = state.entries
     .filter((e) => e.status === 'done')
-    .slice()
     .sort((a, b) => new Date(b.doneAt) - new Date(a.doneAt));
 
   historyCount.textContent = String(done.length);
   historyList.textContent = '';
-  if (done.length === 0) return;
 
   const frag = document.createDocumentFragment();
   done.forEach((entry) => {
@@ -294,24 +241,17 @@ function renderHistory() {
 }
 
 function render() {
-  renderBanner();
   renderStatus();
-  renderOpenLink();
   renderNowUp();
   renderWaitlist();
   renderHistory();
 }
 
-// --- data fetching ---
+// --- data ---
 
 function handleSongbook(data) {
   state.songs = data.songs || [];
-  state.songbookMeta = {
-    partyName: data.partyName,
-    syncedAt: data.syncedAt,
-    nightingale: data.nightingale,
-  };
-  state.songbookLoaded = true;
+  state.songbook = data;
   if (data.partyName) {
     partyNameEl.textContent = data.partyName;
     document.title = `${data.partyName} — VJ`;
@@ -325,57 +265,21 @@ function handleWaitlist(data) {
   render();
 }
 
-// See guest.js for the same note: the SSE "snapshot" payload shape is not
-// fully pinned down in DESIGN.md beyond "JSON matching the GET endpoints".
-// Handle a combined {songbook, waitlist} wrapper, and defensively a bare
-// songbook- or waitlist-shaped object.
-function handleSnapshot(data) {
-  if (!data) return;
-  if (data.songbook) {
-    handleSongbook(data.songbook);
-  } else if (Array.isArray(data.songs)) {
-    handleSongbook(data);
-  }
-  if (data.waitlist) {
-    handleWaitlist(data.waitlist);
-  } else if (Array.isArray(data.entries)) {
-    handleWaitlist(data);
-  }
-}
-
-async function refreshSongbookData() {
-  try {
-    const res = await fetch('/api/songbook');
-    if (res.ok) handleSongbook(await res.json());
-  } catch {
-    // offline / server down — keep whatever we last had
-  }
-}
-
-async function refreshWaitlistData() {
-  try {
-    const res = await fetch('/api/waitlist');
-    if (res.ok) handleWaitlist(await res.json());
-  } catch {
-    // offline / server down — keep whatever we last had
-  }
-}
-
-async function refreshAll() {
-  await Promise.all([refreshSongbookData(), refreshWaitlistData()]);
-}
-
-function connectEvents() {
-  const es = new EventSource('/api/events');
-  es.addEventListener('snapshot', (e) => handleSnapshot(JSON.parse(e.data)));
-  es.addEventListener('waitlist', (e) => handleWaitlist(JSON.parse(e.data)));
-  es.addEventListener('songbook', (e) => handleSongbook(JSON.parse(e.data)));
-  es.addEventListener('open', () => {
-    refreshAll();
-  });
-}
-
 // --- actions ---
+
+// Every action posts, reports any error, then re-reads the waitlist.
+async function act(url, options, failMessage) {
+  try {
+    const res = await fetch(url, options);
+    if (!res.ok) {
+      const body = await safeJson(res);
+      showToast(toastEl, (body && body.error) || failMessage, 3500);
+    }
+  } catch {
+    showToast(toastEl, `${failMessage} — check your connection.`, 3500);
+  }
+  await refreshWaitlist(handleWaitlist);
+}
 
 async function moveEntry(id, mode) {
   const ids = state.entries.filter((e) => e.status !== 'done').map((e) => e.id);
@@ -391,64 +295,22 @@ async function moveEntry(id, mode) {
   } else {
     return;
   }
-  await reorder(ids);
+  await act(
+    '/api/waitlist/reorder',
+    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ orderedIds: ids }) },
+    'Could not reorder the waitlist'
+  );
 }
 
-async function reorder(orderedIds) {
-  try {
-    const res = await fetch('/api/waitlist/reorder', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ orderedIds }),
-    });
-    if (!res.ok) {
-      const body = await safeJson(res);
-      showToast((body && body.error) || 'Could not reorder the waitlist.');
-    }
-  } catch {
-    showToast('Could not reorder — check your connection.');
-  }
-  await refreshWaitlistData();
-}
+const markDone = (id) =>
+  act(`/api/waitlist/${encodeURIComponent(id)}/done`, { method: 'POST' }, 'Could not mark done');
 
-async function markDone(id) {
-  try {
-    const res = await fetch(`/api/waitlist/${encodeURIComponent(id)}/done`, { method: 'POST' });
-    if (!res.ok) {
-      const body = await safeJson(res);
-      showToast((body && body.error) || 'Could not mark done.');
-    }
-  } catch {
-    showToast('Could not mark done — check your connection.');
-  }
-  await refreshWaitlistData();
-}
+const removeEntry = (id) =>
+  act(`/api/waitlist/${encodeURIComponent(id)}`, { method: 'DELETE' }, 'Could not remove entry');
 
-async function removeEntry(id) {
-  try {
-    const res = await fetch(`/api/waitlist/${encodeURIComponent(id)}`, { method: 'DELETE' });
-    if (!res.ok) {
-      const body = await safeJson(res);
-      showToast((body && body.error) || 'Could not remove entry.');
-    }
-  } catch {
-    showToast('Could not remove — check your connection.');
-  }
-  await refreshWaitlistData();
-}
-
-async function sendEntry(id) {
+function sendEntry(id) {
   if (!queueApiAvailable()) return;
-  try {
-    const res = await fetch(`/api/waitlist/${encodeURIComponent(id)}/send`, { method: 'POST' });
-    if (!res.ok) {
-      const body = await safeJson(res);
-      showToast((body && body.error) || 'Could not send to Nightingale.');
-    }
-  } catch {
-    showToast('Could not send — check your connection.');
-  }
-  await refreshWaitlistData();
+  return act(`/api/waitlist/${encodeURIComponent(id)}/send`, { method: 'POST' }, 'Could not send to Nightingale');
 }
 
 // --- QR modal ---
@@ -483,6 +345,7 @@ function renderQrCandidates(candidates) {
   qrHint.hidden = true;
   showQrCandidate(candidates[0].url);
 
+  qrSelect.hidden = candidates.length < 2;
   if (candidates.length > 1) {
     const frag = document.createDocumentFragment();
     candidates.forEach((candidate) => {
@@ -493,9 +356,6 @@ function renderQrCandidates(candidates) {
     });
     qrSelect.appendChild(frag);
     qrSelect.value = candidates[0].url;
-    qrSelect.hidden = false;
-  } else {
-    qrSelect.hidden = true;
   }
 }
 
@@ -524,9 +384,7 @@ function bindToolbar() {
     qrModal.hidden = false;
     loadJoinInfo();
   });
-  qrSelect.addEventListener('change', () => {
-    showQrCandidate(qrSelect.value);
-  });
+  qrSelect.addEventListener('change', () => showQrCandidate(qrSelect.value));
   qrClose.addEventListener('click', () => {
     qrModal.hidden = true;
   });
@@ -545,25 +403,16 @@ function bindToolbar() {
       if (res.ok) {
         handleSongbook(body);
       } else {
-        showToast((body && body.error) || 'Refresh failed — Nightingale may be unreachable.');
-        await refreshSongbookData();
+        showToast(toastEl, (body && body.error) || 'Refresh failed — Nightingale may be unreachable.', 3500);
       }
     } catch {
-      showToast('Refresh failed — network error.');
+      showToast(toastEl, 'Refresh failed — network error.', 3500);
     } finally {
       refreshBtn.disabled = false;
     }
   });
 }
 
-// --- init ---
-
-function init() {
-  bindToolbar();
-  render();
-  refreshAll();
-  connectEvents();
-  setInterval(refreshAll, 30000);
-}
-
-init();
+bindToolbar();
+render();
+connectLive({ onSongbook: handleSongbook, onWaitlist: handleWaitlist });
