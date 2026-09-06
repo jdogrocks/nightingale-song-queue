@@ -8,13 +8,14 @@ services:
     volumes:
       - nightingale-queue-data:/data
     environment:
-      # NIGHTINGALE_URL: how the CONTAINER reaches Nightingale (internal Docker network reference)
+      # How the CONTAINER reaches Nightingale (stays inside Docker's network).
       NIGHTINGALE_URL: http://host.docker.internal:64448
-      # NIGHTINGALE_PUBLIC_URL: how GUESTS' BROWSERS reach Nightingale (for cover art and VJ links).
-      # For a real party, set this to http://<LAN-IP-of-host>:64448 so phones can load cover art.
-      NIGHTINGALE_PUBLIC_URL: http://localhost:64448
-      # GUEST_URL: explicit guest-page URL for the VJ toolbar's QR code, e.g. http://<LAN-IP-of-host>:7464. Recommended in Docker.
-      # GUEST_URL: http://192.168.1.50:7464
+      # A container cannot see the host's LAN IP, so set LAN_IP in .env when
+      # you change networks — that is the only per-venue edit. See .env.example.
+      # Unset LAN_IP leaves GUEST_URL empty, and the QR falls back to the
+      # address the VJ page was opened with.
+      GUEST_URL: ${LAN_IP:+http://${LAN_IP}:7464}
+      NIGHTINGALE_PUBLIC_URL: ${LAN_IP:+http://${LAN_IP}:64448}
     extra_hosts:
       - "host.docker.internal:host-gateway"
 

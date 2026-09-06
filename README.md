@@ -122,12 +122,18 @@ Everything is environment variables; there is no config file.
 | `SYNC_INTERVAL_SEC` | `120` | How often to re-read the songbook from Nightingale. `0` disables the timer. |
 | `PARTY_NAME` | `Karaoke Party!` | Heading shown on both pages |
 
+Under Docker you normally set none of these by hand: `compose.yaml` derives `GUEST_URL` and
+`NIGHTINGALE_PUBLIC_URL` from a single `LAN_IP` entry in a `.env` file (copy `.env.example`). That
+one line is the only per-venue change — see [the QR code](#the-qr-code-and-your-lan-address).
+
 ## Running a party
 
 1. **Start Nightingale**, then start this app. Confirm the console's status line says
    `Nightingale ● reachable` and shows your song count.
-2. **Open the VJ console using your machine's LAN IP**, not `localhost` —
-   e.g. `http://192.168.1.50:7464/vj`. This matters: see below.
+2. **Check the address.** On Docker, set `LAN_IP` in `.env` to this machine's current IP and
+   `docker compose up -d` — your IP changes with the network, and this is the one per-venue edit.
+   Then open the console at `http://<that-IP>:7464/vj`. See
+   [the QR code](#the-qr-code-and-your-lan-address).
 3. **Show the QR code** (button in the console toolbar) on the party screen. Guests scan it and land
    on the guest page.
 4. **Guests join.** Each guest types a name once, finds a song, and confirms. Their position appears
@@ -149,11 +155,19 @@ opens, from three sources in priority order:
 
 If more than one candidate exists, the modal shows a picker so you can choose.
 
-> **Running in Docker?** A container can only see its own internal address (something like
-> `172.19.0.2`), which is useless to phones. Source 2 is what saves you, so **open the console via
-> your LAN IP**. If you open it at `localhost`, the only candidate will be the container's internal
-> address and the QR code will not work. Setting `GUEST_URL` also fixes it permanently for a fixed
-> venue.
+> **Running in Docker? Set `LAN_IP`.** A container cannot see the host's LAN address — it only sees
+> its own internal one (something like `172.19.0.2`), which is useless to phones. The compose file
+> therefore reads a single variable from a `.env` file beside it:
+>
+> ```
+> LAN_IP=192.168.1.210
+> ```
+>
+> That one line becomes both `GUEST_URL` and `NIGHTINGALE_PUBLIC_URL`. Copy `.env.example` to
+> `.env`, set the address, and run `docker compose up -d`. **This is the only thing to change when
+> you move to a new venue.** Leave `LAN_IP` unset and the QR falls back to whatever address you
+> opened the console with — which works, as long as you open it at the LAN IP rather than
+> `localhost`.
 
 ## Troubleshooting
 
